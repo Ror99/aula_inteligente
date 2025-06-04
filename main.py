@@ -13,12 +13,15 @@ load_dotenv()
 # Configuración desde .env
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-MODEL_PATH = os.getenv("MODEL_PATH")
-SCALER_PATH = os.getenv("SCALER_PATH")
+MODEL_PATH = "modelo_rendimiento.pkl"
+SCALER_PATH = "scaler.pkl"
 
 # Cargar modelo y escalador
-model = joblib.load(MODEL_PATH)
-scaler = joblib.load(SCALER_PATH)
+try:
+    model = joblib.load(MODEL_PATH)
+    scaler = joblib.load(SCALER_PATH)
+except Exception as e:
+    raise RuntimeError(f"Error al cargar los modelos: {e}")
 
 # Inicializar app
 app = FastAPI(
@@ -71,7 +74,7 @@ def obtener_datos_alumno(student_id: str) -> dict:
     subjects_url = f"{SUPABASE_URL}/rest/v1/student_subjects?student_id=eq.{student_id}"
     subjects_res = requests.get(subjects_url, headers=headers, verify=False).json()
 
-    subject_ids = [s['subject_id'] for s in subjects_res]
+    subject_ids = [s['subject_id'] for s in subjects_res if subjects_res]
     subject_names = {}
     if subject_ids:
         subject_url = f"{SUPABASE_URL}/rest/v1/subjects?id=in.({','.join(map(str, subject_ids))})"
