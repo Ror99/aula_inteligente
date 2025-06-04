@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: aula-inteligente-api
+    env: python
+    root: fastapi_api/
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    port: $PORT

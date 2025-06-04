@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List, Dict
+from typing import List, Dict
 import joblib
 import numpy as np
 import requests
@@ -16,12 +16,12 @@ SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 MODEL_PATH = "modelo_rendimiento.pkl"
 SCALER_PATH = "scaler.pkl"
 
-# Cargar modelo y escalador
+# Inicializar modelo y escalador
 try:
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
 except Exception as e:
-    raise RuntimeError(f"Error al cargar los modelos: {e}")
+    raise RuntimeError(f"❌ Error al cargar los modelos: {e}")
 
 # Inicializar app
 app = FastAPI(
@@ -51,7 +51,7 @@ def obtener_datos_alumno(student_id: str) -> dict:
     }
 
     profile_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{student_id}"
-    profile_res = requests.get(profile_url, headers=headers, verify=False).json()
+    profile_res = requests.get(profile_url, headers=headers).json()
 
     if not profile_res:
         raise Exception("Alumno no encontrado")
@@ -59,26 +59,26 @@ def obtener_datos_alumno(student_id: str) -> dict:
     profile = profile_res[0]
 
     grades_url = f"{SUPABASE_URL}/rest/v1/grades?student_id=eq.{student_id}"
-    grades_res = requests.get(grades_url, headers=headers, verify=False).json()
+    grades_res = requests.get(grades_url, headers=headers).json()
     promedio_anterior = round(sum(g['grade'] for g in grades_res) / max(len(grades_res), 1), 2) if grades_res else 7.0
 
     attendance_url = f"{SUPABASE_URL}/rest/v1/attendance?student_id=eq.{student_id}"
-    attendance_res = requests.get(attendance_url, headers=headers, verify=False).json()
+    attendance_res = requests.get(attendance_url, headers=headers).json()
     asistencia = len([a for a in attendance_res if a['present']]) / max(len(attendance_res), 1)
 
     participation_url = f"{SUPABASE_URL}/rest/v1/participation?student_id=eq.{student_id}"
-    participation_res = requests.get(participation_url, headers=headers, verify=False).json()
+    participation_res = requests.get(participation_url, headers=headers).json()
     participacion = round(sum(p['score'] for p in participation_res) / max(len(participation_res), 1), 2) if participation_res else 6
 
     # Obtener materias del alumno
     subjects_url = f"{SUPABASE_URL}/rest/v1/student_subjects?student_id=eq.{student_id}"
-    subjects_res = requests.get(subjects_url, headers=headers, verify=False).json()
+    subjects_res = requests.get(subjects_url, headers=headers).json()
 
     subject_ids = [s['subject_id'] for s in subjects_res if subjects_res]
     subject_names = {}
     if subject_ids:
         subject_url = f"{SUPABASE_URL}/rest/v1/subjects?id=in.({','.join(map(str, subject_ids))})"
-        subject_name_res = requests.get(subject_url, headers=headers, verify=False).json()
+        subject_name_res = requests.get(subject_url, headers=headers).json()
         subject_names = {s['id']: s['name'] for s in subject_name_res}
 
     return {
@@ -90,9 +90,20 @@ def obtener_datos_alumno(student_id: str) -> dict:
     }
 
 
+@app.get("/")
+def index():
+    """
+    Health Check – Útil para Render y otros servicios de despliegue
+    """
+    return {"status": "OK", "message": "Aula Inteligente API lista para predecir rendimiento académico"}
+
+
 @app.get("/predict/student/{student_id}/detallado", response_model=PrediccionDetalladaResponse)
 def predecir_rendimiento_detallado(student_id: str):
-    datos = obtener_datos_alumno(student_id)
+    try:
+        datos = obtener_datos_alumno(student_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"No se encontraron datos para este alumno: {str(e)}")
 
     input_data = np.array([[
         datos["asistencia"],
@@ -102,13 +113,15 @@ def predecir_rendimiento_detallado(student_id: str):
         8   # actividades_entregadas simuladas
     ]])
 
-    input_scaled = scaler.transform(input_data)
-    prediccion_global = model.predict(input_scaled)[0]
+    try:
+        input_scaled = scaler.transform(input_data)
+        prediccion_global = model.predict(input_scaled)[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al procesar la predicción: {str(e)}")
 
     # Predicciones por materia
     predicciones_por_materia = []
     for subject_id, subject_name in datos["materias"].items():
-        # Simulamos una ligera variación por materia
         prediccion_materia = prediccion_global * (0.95 + np.random.uniform(-0.05, 0.05))
         alerta = prediccion_materia < 6.0
         predicciones_por_materia.append({
@@ -120,9 +133,8 @@ def predecir_rendimiento_detallado(student_id: str):
     # Alerta global
     alerta_riesgo = prediccion_global < 6.0
 
-    # Generar recomendaciones personalizadas
+    # Recomendaciones personalizadas
     recomendaciones = []
-
     if datos["asistencia"] < 0.7:
         recomendaciones.append("Mejorar la asistencia es fundamental para mejorar el desempeño académico.")
     if datos["participacion"] < 5:
